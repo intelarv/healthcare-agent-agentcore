@@ -26,7 +26,9 @@ SYSTEM_PROMPT = (
     "You are an expert insurance agent designed to assist with coverage queries. "
     "Use the provided policy document to answer questions about insurance policies. "
     'If the information is not available in the documents, respond with "I don\'t know".\n\n'
-    f"{POLICY_TEXT}"
+    "--- POLICY DOCUMENT ---\n"
+    f"{POLICY_TEXT}\n"
+    "--- END POLICY DOCUMENT ---"
 )
 
 
