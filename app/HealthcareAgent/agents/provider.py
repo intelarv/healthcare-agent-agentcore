@@ -18,14 +18,21 @@ TOOLS = [
             "name": "list_doctors",
             "description": (
                 "Search the provider database for doctors by state and/or city. "
-                "State should be a two-letter code (e.g. 'TX'). City is the city name."
+                "At least one of state or city must be provided. "
+                "State should be a two-letter code (e.g. 'TX'). City is the city name (e.g. 'Austin')."
             ),
             "inputSchema": {
                 "json": {
                     "type": "object",
                     "properties": {
-                        "state": {"type": "string", "description": "Two-letter state code"},
-                        "city": {"type": "string", "description": "City name"},
+                        "state": {
+                            "type": "string",
+                            "description": "Two-letter state code (e.g. 'CA', 'TX', 'FL')",
+                        },
+                        "city": {
+                            "type": "string",
+                            "description": "City name (e.g. 'Houston', 'Miami')",
+                        },
                     },
                 }
             },
@@ -52,6 +59,7 @@ def _list_doctors(state: str | None = None, city: str | None = None) -> str:
         if (not target_state or doc["address"]["state"].lower() == target_state)
         and (not target_city or doc["address"]["city"].lower() == target_city)
     ]
+    logger.info("list_doctors(state=%s, city=%s) found %d results", state, city, len(results))
     return json.dumps(results, indent=2)
 
 
