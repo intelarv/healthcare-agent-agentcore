@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "HealthcareAgent"
+version = "0.1.0"
+description = "Multi-agent healthcare system on AWS Bedrock AgentCore"
+requires-python = ">=3.10"
+dependencies = [
+    "bedrock-agentcore >= 1.0.3",
+    "boto3 >= 1.35.0",
+    "httpx >= 0.27.0",
+    "PyPDF2 >= 3.0.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
