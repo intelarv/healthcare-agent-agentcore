@@ -69,6 +69,9 @@ def _handle_tool(name: str, tool_input: dict) -> str:
 
 def research_health(question: str) -> str:
     """Research health information via web search."""
+    api_key = os.getenv("SERPER_API_KEY", "")
+    if not api_key:
+        return "Error: SERPER_API_KEY environment variable is required."
     logger.info("ResearchAgent query: %s", question[:120])
     messages = [{"role": "user", "content": [{"text": question}]}]
     answer = converse_with_tools(messages, SYSTEM_PROMPT, TOOLS, _handle_tool)
