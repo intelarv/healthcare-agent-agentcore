@@ -15,10 +15,12 @@ logger = logging.getLogger(__name__)
 
 app = BedrockAgentCoreApp()
 
+session_histories: dict[str, list[dict]] = {}
+
 TOOLS = [
-    {"toolSpec": {"name": "query_policy", "description": "Ask about insurance coverage, copays, deductibles, benefits.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The policy question"}}, "required": ["question"]}}}},
-    {"toolSpec": {"name": "find_providers", "description": "Find in-network healthcare providers by location or specialty.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The provider search query"}}, "required": ["question"]}}}},
-    {"toolSpec": {"name": "research_health", "description": "Look up health information about symptoms, conditions, treatments.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The health research question"}}, "required": ["question"]}}}},
+    {"toolSpec": {"name": "query_policy", "description": "Ask about insurance coverage, copays, coinsurance, deductibles, benefits, and plan details.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The policy/coverage question to ask"}}, "required": ["question"]}}}},
+    {"toolSpec": {"name": "find_providers", "description": "Find in-network healthcare providers by location or specialty.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The provider search query including location and/or specialty"}}, "required": ["question"]}}}},
+    {"toolSpec": {"name": "research_health", "description": "Look up health information about symptoms, conditions, treatments, procedures, or general medical knowledge.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The health/medical research question"}}, "required": ["question"]}}}},
 ]
 
 SYSTEM_PROMPT = (
@@ -28,9 +30,21 @@ SYSTEM_PROMPT = (
     "- query_policy: For insurance coverage, benefits, copays, deductibles\n"
     "- find_providers: For finding doctors/providers by location or specialty\n"
     "- research_health: For health conditions, symptoms, treatments, medical info\n\n"
-    "Choose the tool(s) most relevant to the user's question. "
-    "If unsure what the user needs, ask a clarifying question. "
-    "Never fabricate medical advice — only relay what the tools return."
+    "ROUTING RULES:\n"
+    "1. Choose the tool(s) most relevant to the user's question.\n"
+    "2. After receiving a tool result, evaluate its quality:\n"
+    "   - If the result is vague, unhelpful, says \"I don't know\", or fails to "
+    "answer the question, call a DIFFERENT tool to get a better answer.\n"
+    "   - For example, if query_policy returns \"I don't know\" for a benefits "
+    "question, try research_health to find general information instead.\n"
+    "   - If find_providers returns no matching doctors, try a broader search "
+    "or inform the user with what you do know.\n"
+    "3. You may call the same tool again with a rephrased question if you "
+    "believe the original query was too narrow.\n"
+    "4. Once you have a satisfactory answer (or have exhausted alternatives), "
+    "synthesize everything into a clear, helpful response.\n"
+    "5. If unsure what the user needs, ask a clarifying question.\n"
+    "6. Never fabricate medical advice — only relay what the tools return."
 )
 
 
@@ -52,11 +66,27 @@ def handle_tool(name: str, tool_input: dict) -> str:
 async def handle(payload, context):
     message = payload.get("message", "")
     if not message:
-        return {"response": "Hi there! Ask me a healthcare question!", "agent": "HealthcareConcierge"}
+        return {
+            "response": "Hi there! I can help navigate benefits, providers, and coverage details. Ask me a healthcare question!",
+            "agent": "HealthcareConcierge",
+        }
 
-    logger.info("Orchestrator query: %s", message[:120])
-    messages = [{"role": "user", "content": [{"text": message}]}]
+    session_id = payload.get("session_id") or getattr(context, "session_id", "default")
+    if session_id not in session_histories:
+        session_histories[session_id] = []
+    history = session_histories[session_id]
+
+    logger.info("Orchestrator [session=%s] query: %s", session_id, message[:120])
+
+    messages = list(history)
+    messages.append({"role": "user", "content": [{"text": message}]})
     answer = converse_with_tools(messages, SYSTEM_PROMPT, TOOLS, handle_tool)
+
+    history.append({"role": "user", "content": [{"text": message}]})
+    history.append({"role": "assistant", "content": [{"text": answer}]})
+    if len(history) > 40:
+        session_histories[session_id] = history[-40:]
+
     logger.info("Orchestrator response length: %d chars", len(answer))
     return {"response": answer, "agent": "HealthcareConcierge"}
 
