@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+.venv
+*.egg-info
+dist
+build
+.idea
+.claude
+agentcore/cdk/node_modules
