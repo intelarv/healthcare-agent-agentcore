@@ -1,11 +1,15 @@
-"""Policy Agent - answers insurance coverage questions using a benefits PDF."""
+"""Policy Agent - answers insurance coverage questions using a benefits PDF.
+
+Uses a Strands Agent with the full policy document embedded in the system prompt.
+"""
 
 import logging
 from pathlib import Path
 
 from PyPDF2 import PdfReader
+from strands import Agent
 
-from shared.bedrock_client import converse, extract_text
+from shared.model import load_model
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +35,26 @@ SYSTEM_PROMPT = (
     "--- END POLICY DOCUMENT ---"
 )
 
+_agent = None
+
+
+def get_agent() -> Agent:
+    """Get or create the singleton policy agent."""
+    global _agent
+    if _agent is None:
+        _agent = Agent(
+            model=load_model(),
+            system_prompt=SYSTEM_PROMPT,
+            callback_handler=None,
+        )
+    return _agent
+
 
 def query_policy(question: str) -> str:
     """Answer an insurance coverage question using the policy PDF."""
     logger.info("PolicyAgent query: %s", question[:120])
-    messages = [{"role": "user", "content": [{"text": question}]}]
-    response = converse(messages, SYSTEM_PROMPT)
-    answer = extract_text(response) or "I don't know"
+    agent = get_agent()
+    result = agent(question)
+    answer = str(result)
     logger.info("PolicyAgent response length: %d chars", len(answer))
     return answer
