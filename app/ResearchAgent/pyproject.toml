@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "HealthcareAgent"
-version = "0.2.0"
-description = "Multi-agent healthcare orchestrator on AWS Bedrock AgentCore"
+name = "ResearchAgent"
+version = "0.1.0"
+description = "Healthcare research agent on AWS Bedrock AgentCore"
 requires-python = ">=3.10"
 dependencies = [
     "bedrock-agentcore >= 1.0.3",

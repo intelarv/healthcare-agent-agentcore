@@ -1,27 +1,86 @@
-"""Healthcare Concierge (Orchestrator) - routes queries to specialist agents."""
+"""Healthcare Concierge (Orchestrator) - routes queries to specialist agents.
 
+Deployed as an AWS Bedrock AgentCore runtime. Uses Strands Agent with @tool
+decorators that call sub-agents via HTTP, following the A2A communication pattern.
+
+Sub-agent endpoints are configured via environment variables:
+  POLICY_AGENT_URL, PROVIDER_AGENT_URL, RESEARCH_AGENT_URL
+"""
+
+import json
 import logging
 import os
 
-from bedrock_agentcore import BedrockAgentCoreApp
-
-from shared.bedrock_client import converse_with_tools
-from agents.policy import query_policy
-from agents.provider import find_providers
-from agents.research import research_health
+import httpx
+from strands import Agent, tool
+from strands.models.bedrock import BedrockModel
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = BedrockAgentCoreApp()
 
-session_histories: dict[str, list[dict]] = {}
+POLICY_AGENT_URL = os.getenv("POLICY_AGENT_URL", "http://policy-agent:8080/invocations")
+PROVIDER_AGENT_URL = os.getenv("PROVIDER_AGENT_URL", "http://provider-agent:8080/invocations")
+RESEARCH_AGENT_URL = os.getenv("RESEARCH_AGENT_URL", "http://research-agent:8080/invocations")
 
-TOOLS = [
-    {"toolSpec": {"name": "query_policy", "description": "Ask about insurance coverage, copays, coinsurance, deductibles, benefits, and plan details.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The policy/coverage question to ask"}}, "required": ["question"]}}}},
-    {"toolSpec": {"name": "find_providers", "description": "Find in-network healthcare providers by location or specialty.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The provider search query including location and/or specialty"}}, "required": ["question"]}}}},
-    {"toolSpec": {"name": "research_health", "description": "Look up health information about symptoms, conditions, treatments, procedures, or general medical knowledge.", "inputSchema": {"json": {"type": "object", "properties": {"question": {"type": "string", "description": "The health/medical research question"}}, "required": ["question"]}}}},
-]
+
+def load_model() -> BedrockModel:
+    return BedrockModel(
+        model_id=os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0"),
+        region_name=os.getenv("AWS_REGION", "us-east-1"),
+    )
+
+
+def _call_agent(url: str, question: str) -> str:
+    """POST to a sub-agent's /invocations endpoint and return the response text."""
+    try:
+        with httpx.Client(timeout=60.0) as client:
+            resp = client.post(url, json={"message": question})
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("response", json.dumps(data))
+    except httpx.HTTPStatusError as e:
+        logger.error("Sub-agent HTTP error at %s: %s", url, e)
+        return f"Error contacting agent: HTTP {e.response.status_code}"
+    except Exception as e:
+        logger.error("Sub-agent call failed at %s: %s", url, e)
+        return f"Error contacting agent: {e}"
+
+
+@tool
+def query_policy(question: str) -> str:
+    """Ask the Policy Agent about insurance coverage, copays, coinsurance, deductibles, benefits, and plan details.
+
+    Args:
+        question: The policy/coverage question to ask.
+    """
+    logger.info("Routing to PolicyAgent: %s", question[:100])
+    return _call_agent(POLICY_AGENT_URL, question)
+
+
+@tool
+def find_providers(question: str) -> str:
+    """Ask the Provider Agent to find in-network healthcare providers by location or specialty.
+
+    Args:
+        question: The provider search query including location and/or specialty.
+    """
+    logger.info("Routing to ProviderAgent: %s", question[:100])
+    return _call_agent(PROVIDER_AGENT_URL, question)
+
+
+@tool
+def research_health(question: str) -> str:
+    """Ask the Research Agent to look up health information about symptoms, conditions, treatments, or procedures.
+
+    Args:
+        question: The health/medical research question.
+    """
+    logger.info("Routing to ResearchAgent: %s", question[:100])
+    return _call_agent(RESEARCH_AGENT_URL, question)
+
 
 SYSTEM_PROMPT = (
     "You are a friendly healthcare concierge. You help users navigate their "
@@ -35,31 +94,25 @@ SYSTEM_PROMPT = (
     "2. After receiving a tool result, evaluate its quality:\n"
     "   - If the result is vague, unhelpful, says \"I don't know\", or fails to "
     "answer the question, call a DIFFERENT tool to get a better answer.\n"
-    "   - For example, if query_policy returns \"I don't know\" for a benefits "
-    "question, try research_health to find general information instead.\n"
-    "   - If find_providers returns no matching doctors, try a broader search "
-    "or inform the user with what you do know.\n"
-    "3. You may call the same tool again with a rephrased question if you "
-    "believe the original query was too narrow.\n"
-    "4. Once you have a satisfactory answer (or have exhausted alternatives), "
-    "synthesize everything into a clear, helpful response.\n"
+    "3. You may call the same tool again with a rephrased question if needed.\n"
+    "4. Once you have a satisfactory answer, synthesize a clear, helpful response.\n"
     "5. If unsure what the user needs, ask a clarifying question.\n"
     "6. Never fabricate medical advice — only relay what the tools return."
 )
 
+_agent = None
 
-def handle_tool(name: str, tool_input: dict) -> str:
-    question = tool_input.get("question", "")
-    if name == "query_policy":
-        logger.info("Routing to PolicyAgent: %s", question[:100])
-        return query_policy(question)
-    elif name == "find_providers":
-        logger.info("Routing to ProviderAgent: %s", question[:100])
-        return find_providers(question)
-    elif name == "research_health":
-        logger.info("Routing to ResearchAgent: %s", question[:100])
-        return research_health(question)
-    return f"Unknown tool: {name}"
+
+def _get_agent() -> Agent:
+    global _agent
+    if _agent is None:
+        _agent = Agent(
+            model=load_model(),
+            system_prompt=SYSTEM_PROMPT,
+            tools=[query_policy, find_providers, research_health],
+            callback_handler=None,
+        )
+    return _agent
 
 
 @app.entrypoint
@@ -71,22 +124,10 @@ async def handle(payload, context):
             "agent": "HealthcareConcierge",
         }
 
-    session_id = payload.get("session_id") or getattr(context, "session_id", "default")
-    if session_id not in session_histories:
-        session_histories[session_id] = []
-    history = session_histories[session_id]
-
-    logger.info("Orchestrator [session=%s] query: %s", session_id, message[:120])
-
-    messages = list(history)
-    messages.append({"role": "user", "content": [{"text": message}]})
-    answer = converse_with_tools(messages, SYSTEM_PROMPT, TOOLS, handle_tool)
-
-    history.append({"role": "user", "content": [{"text": message}]})
-    history.append({"role": "assistant", "content": [{"text": answer}]})
-    if len(history) > 40:
-        session_histories[session_id] = history[-40:]
-
+    logger.info("Orchestrator query: %s", message[:120])
+    agent = _get_agent()
+    result = agent(message)
+    answer = str(result)
     logger.info("Orchestrator response length: %d chars", len(answer))
     return {"response": answer, "agent": "HealthcareConcierge"}
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
   "name": "HealthcareAgent",
-  "version": 1,
+  "version": 2,
   "managedBy": "CDK",
   "tags": {
     "agentcore:created-by": "agentcore-cli",
@@ -13,6 +13,33 @@
       "build": "CodeZip",
       "entrypoint": "main.py",
       "codeLocation": "app/HealthcareAgent/",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP"
+    },
+    {
+      "name": "PolicyAgent",
+      "build": "CodeZip",
+      "entrypoint": "main.py",
+      "codeLocation": "app/PolicyAgent/",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP"
+    },
+    {
+      "name": "ProviderAgent",
+      "build": "CodeZip",
+      "entrypoint": "main.py",
+      "codeLocation": "app/ProviderAgent/",
+      "runtimeVersion": "PYTHON_3_12",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP"
+    },
+    {
+      "name": "ResearchAgent",
+      "build": "CodeZip",
+      "entrypoint": "main.py",
+      "codeLocation": "app/ResearchAgent/",
       "runtimeVersion": "PYTHON_3_12",
       "networkMode": "PUBLIC",
       "protocol": "HTTP"
