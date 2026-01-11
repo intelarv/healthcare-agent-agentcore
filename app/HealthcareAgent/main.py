@@ -2,9 +2,7 @@
 
 Deployed as an AWS Bedrock AgentCore runtime. Uses Strands Agent with @tool
 decorators that call sub-agents via HTTP, following the A2A communication pattern.
-
-Sub-agent endpoints are configured via environment variables:
-  POLICY_AGENT_URL, PROVIDER_AGENT_URL, RESEARCH_AGENT_URL
+Supports streaming responses via agent.stream_async().
 """
 
 import json
@@ -100,36 +98,27 @@ SYSTEM_PROMPT = (
     "6. Never fabricate medical advice — only relay what the tools return."
 )
 
-_agent = None
-
-
-def _get_agent() -> Agent:
-    global _agent
-    if _agent is None:
-        _agent = Agent(
-            model=load_model(),
-            system_prompt=SYSTEM_PROMPT,
-            tools=[query_policy, find_providers, research_health],
-            callback_handler=None,
-        )
-    return _agent
-
 
 @app.entrypoint
-async def handle(payload, context):
+async def invoke(payload, context):
     message = payload.get("message", "")
     if not message:
-        return {
-            "response": "Hi there! I can help navigate benefits, providers, and coverage details. Ask me a healthcare question!",
-            "agent": "HealthcareConcierge",
-        }
+        yield "Hi there! I can help navigate benefits, providers, and coverage details. Ask me a healthcare question!"
+        return
 
     logger.info("Orchestrator query: %s", message[:120])
-    agent = _get_agent()
-    result = agent(message)
-    answer = str(result)
-    logger.info("Orchestrator response length: %d chars", len(answer))
-    return {"response": answer, "agent": "HealthcareConcierge"}
+
+    agent = Agent(
+        model=load_model(),
+        system_prompt=SYSTEM_PROMPT,
+        tools=[query_policy, find_providers, research_health],
+        callback_handler=None,
+    )
+
+    stream = agent.stream_async(message)
+    async for event in stream:
+        if "data" in event and isinstance(event["data"], str):
+            yield event["data"]
 
 
 if __name__ == "__main__":
