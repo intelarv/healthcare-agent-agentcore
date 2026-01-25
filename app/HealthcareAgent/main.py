@@ -2,7 +2,7 @@
 
 Deployed as an AWS Bedrock AgentCore runtime. Uses Strands Agent with @tool
 decorators that call sub-agents via HTTP, following the A2A communication pattern.
-Supports streaming responses via agent.stream_async().
+Per-session agent instances maintain conversation history.
 """
 
 import json
@@ -22,6 +22,12 @@ app = BedrockAgentCoreApp()
 POLICY_AGENT_URL = os.getenv("POLICY_AGENT_URL", "http://policy-agent:8080/invocations")
 PROVIDER_AGENT_URL = os.getenv("PROVIDER_AGENT_URL", "http://provider-agent:8080/invocations")
 RESEARCH_AGENT_URL = os.getenv("RESEARCH_AGENT_URL", "http://research-agent:8080/invocations")
+
+# ---------------------------------------------------------------------------
+# Session management: per-session Agent instances with conversation history
+# ---------------------------------------------------------------------------
+_session_agents: dict[str, Agent] = {}
+_MAX_SESSIONS = 100
 
 
 def load_model() -> BedrockModel:
@@ -99,6 +105,24 @@ SYSTEM_PROMPT = (
 )
 
 
+def _get_session_agent(session_id: str) -> Agent:
+    """Get or create an Agent for the given session."""
+    if session_id not in _session_agents:
+        # Evict oldest sessions if at capacity
+        if len(_session_agents) >= _MAX_SESSIONS:
+            oldest = next(iter(_session_agents))
+            del _session_agents[oldest]
+            logger.info("Evicted session %s (at capacity %d)", oldest, _MAX_SESSIONS)
+
+        _session_agents[session_id] = Agent(
+            model=load_model(),
+            system_prompt=SYSTEM_PROMPT,
+            tools=[query_policy, find_providers, research_health],
+            callback_handler=None,
+        )
+    return _session_agents[session_id]
+
+
 @app.entrypoint
 async def invoke(payload, context):
     message = payload.get("message", "")
@@ -106,15 +130,10 @@ async def invoke(payload, context):
         yield "Hi there! I can help navigate benefits, providers, and coverage details. Ask me a healthcare question!"
         return
 
-    logger.info("Orchestrator query: %s", message[:120])
+    session_id = payload.get("session_id") or getattr(context, "session_id", "default")
+    logger.info("Orchestrator [session=%s] query: %s", session_id, message[:120])
 
-    agent = Agent(
-        model=load_model(),
-        system_prompt=SYSTEM_PROMPT,
-        tools=[query_policy, find_providers, research_health],
-        callback_handler=None,
-    )
-
+    agent = _get_session_agent(session_id)
     stream = agent.stream_async(message)
     async for event in stream:
         if "data" in event and isinstance(event["data"], str):
