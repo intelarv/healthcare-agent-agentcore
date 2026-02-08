@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY app/HealthcareAgent/ ./
+ARG AGENT_DIR=app/HealthcareAgent
+COPY ${AGENT_DIR}/ ./
 
 RUN pip install --no-cache-dir .
 

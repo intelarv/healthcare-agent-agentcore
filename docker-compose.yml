@@ -1,8 +1,67 @@
 services:
+  policy-agent:
+    build:
+      context: .
+      args:
+        AGENT_DIR: app/PolicyAgent
+    ports:
+      - "8081:8080"
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  provider-agent:
+    build:
+      context: .
+      args:
+        AGENT_DIR: app/ProviderAgent
+    ports:
+      - "8082:8080"
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  research-agent:
+    build:
+      context: .
+      args:
+        AGENT_DIR: app/ResearchAgent
+    ports:
+      - "8083:8080"
+    environment:
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0}
+      - SERPER_API_KEY=${SERPER_API_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   healthcare-agent:
     build:
       context: .
-      dockerfile: Dockerfile
+      args:
+        AGENT_DIR: app/HealthcareAgent
     ports:
       - "8080:8080"
     environment:
@@ -10,8 +69,17 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
-      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-anthropic.claude-sonnet-4-20250514}
-      - SERPER_API_KEY=${SERPER_API_KEY}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-20250514-v1:0}
+      - POLICY_AGENT_URL=http://policy-agent:8080/invocations
+      - PROVIDER_AGENT_URL=http://provider-agent:8080/invocations
+      - RESEARCH_AGENT_URL=http://research-agent:8080/invocations
+    depends_on:
+      policy-agent:
+        condition: service_healthy
+      provider-agent:
+        condition: service_healthy
+      research-agent:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping')"]
       interval: 10s
