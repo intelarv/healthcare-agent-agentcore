@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.agentcore.aws.dev/v1/agentcore.json",
   "name": "HealthcareAgent",
-  "version": 2,
+  "version": 3,
   "managedBy": "CDK",
   "tags": {
     "agentcore:created-by": "agentcore-cli",
