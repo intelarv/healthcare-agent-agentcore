@@ -7,7 +7,8 @@ COPY ${AGENT_DIR}/ ./
 
 RUN pip install --no-cache-dir .
 
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1
 
 EXPOSE 8080
 
